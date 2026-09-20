@@ -1,26 +1,61 @@
-# Discord support, ticket, search and voice bot
+# Discord Bot Starter
 
-## Important account limitation
-Create the bot through the [Discord Developer Portal](https://discord.com/developers/applications). Do **not** use a normal user account or a user token. Automating a user account (a self-bot) violates Discord rules and can get the account banned. A bot account can join voice channels and play audio, but Discord does not provide bots with normal user screen sharing/Go Live access.
+This bot includes a large command set for a Discord support server, including:
+
+- Ticket system
+- Moderation commands
+- YouTube search and playback
+- Music queue and playback controls
+- Server and user info
+- Helpful admin tools
+- Announcement support
 
 ## Setup
 
-1. Create an application and bot in the Developer Portal.
-2. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN` and `CLIENT_ID`.
-3. Invite it with the `bot` and `applications.commands` scopes. Grant only the permissions it needs, including View Channels, Send Messages, Manage Channels, Manage Messages, Connect, and Speak.
-4. Run:
+1. Copy `.env.example` to `.env`.
+2. Fill in your values:
+   - `DISCORD_TOKEN`
+   - `CLIENT_ID`
+   - Optional: `GUILD_ID`, `SUPPORT_ROLE_ID`, `TICKET_CATEGORY_ID`
+3. Install dependencies:
 
 ```bash
 npm install
+```
+
+4. Start the bot:
+
+```bash
 npm start
 ```
 
-Set `GUILD_ID` while testing for instant command registration. Without it, commands are registered globally and can take time to appear.
+## Main commands
 
-## Included commands
+- `/help`
+- `/ping`
+- `/serverinfo`
+- `/userinfo`
+- `/announce`
+- `/clear <amount>`
+- `/kick <user>`
+- `/ban <user>`
+- `/search <query>`
+- `/play <query>`
+- `/queue`
+- `/pause`
+- `/resume`
+- `/skip`
+- `/stop`
+- `/ticket create`
+- `/ticket close`
+- `/ticket claim`
 
-`/ticket create`, `/ticket close`, `/ticket claim`, `/search`, `/play`, `/stop`, `/skip`, `/serverinfo`, `/userinfo`, `/clear`, and `/announce`.
+## Important limitations
 
-The ticket system creates private channels, supports a support role, adds a close button, and can place tickets in a category. Configure `SUPPORT_ROLE_ID`, `TICKET_CATEGORY_ID`, and `LOG_CHANNEL_ID` in `.env`.
+Discord bots cannot act as a normal user account for screen sharing, Go Live, or desktop screen recording. Those features require a real human account. This bot is designed to stay within Discord bot permissions and rules.
 
-Only use media you are allowed to access and stream. This starter intentionally does not implement a self-bot or screen-share workaround.
+## Notes
+
+- Use a proper bot account from the Discord Developer Portal.
+- Never use a normal user account token for automation.
+- Keep the token in `.env` and do not commit it to Git.
