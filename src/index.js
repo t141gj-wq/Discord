@@ -1,455 +1,161 @@
 import 'dotenv/config';
 import {
-  Client,
-  GatewayIntentBits,
-  Collection,
-  PermissionFlagsBits,
-  REST,
-  Routes,
-  SlashCommandBuilder,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ChannelType,
+  Client, GatewayIntentBits, PermissionFlagsBits, REST, Routes,
+  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder,
+  ButtonStyle, ChannelType,
 } from 'discord.js';
 import {
-  getVoiceConnection,
-  joinVoiceChannel,
-  createAudioPlayer,
-  createAudioResource,
-  NoSubscriberBehavior,
-  AudioPlayerStatus,
-  VoiceConnectionStatus,
-  entersState,
+  joinVoiceChannel, createAudioPlayer, createAudioResource,
+  NoSubscriberBehavior, AudioPlayerStatus, VoiceConnectionStatus, entersState,
 } from '@discordjs/voice';
 import yts from 'yt-search';
 import play from 'play-dl';
 
-const requiredEnv = ['DISCORD_TOKEN', 'CLIENT_ID'];
-for (const key of requiredEnv) {
+for (const key of ['DISCORD_TOKEN', 'CLIENT_ID']) {
   if (!process.env[key]) throw new Error(`Missing ${key} in .env`);
 }
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
-
-client.commands = new Collection();
-const musicState = new Map();
+const client = new Client({ intents: [
+  GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers,
+  GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages,
+] });
+const music = new Map();
+const pick = (items) => items[Math.floor(Math.random() * items.length)];
+const friendly = [
+  'I’m here with you. You do not have to handle everything alone 💙',
+  'That sounds like a lot. Take a breath — one small step at a time.',
+  'Thank you for telling me. I’m listening, and I’m glad you reached out.',
+];
+const encouragement = [
+  'You are doing better than you think.', 'Your feelings are valid.',
+  'It is okay to rest. You do not have to earn a break.',
+  'I believe in you — keep going, gently.',
+];
 
 const commands = [
-  new SlashCommandBuilder().setName('help').setDescription('Show all bot commands'),
-  new SlashCommandBuilder().setName('ping').setDescription('Check bot latency'),
-  new SlashCommandBuilder().setName('serverinfo').setDescription('Show server information'),
-  new SlashCommandBuilder().setName('userinfo').setDescription('Show user information').addUserOption((option) => option.setName('user').setDescription('User to inspect').setRequired(false)),
-  new SlashCommandBuilder().setName('announce').setDescription('Send an announcement').addStringOption((option) => option.setName('message').setDescription('Announcement text').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-  new SlashCommandBuilder().setName('clear').setDescription('Delete recent messages').addIntegerOption((option) => option.setName('amount').setDescription('1-100 messages').setRequired(true).setMinValue(1).setMaxValue(100)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
-  new SlashCommandBuilder().setName('kick').setDescription('Kick a user').addUserOption((option) => option.setName('user').setDescription('User to kick').setRequired(true)).addStringOption((option) => option.setName('reason').setDescription('Reason').setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
-  new SlashCommandBuilder().setName('ban').setDescription('Ban a user').addUserOption((option) => option.setName('user').setDescription('User to ban').setRequired(true)).addStringOption((option) => option.setName('reason').setDescription('Reason').setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
-  new SlashCommandBuilder().setName('search').setDescription('Search YouTube').addStringOption((option) => option.setName('query').setDescription('What do you want to search for?').setRequired(true)),
-  new SlashCommandBuilder().setName('play').setDescription('Play a YouTube song or URL in voice').addStringOption((option) => option.setName('query').setDescription('YouTube URL or search terms').setRequired(true)),
-  new SlashCommandBuilder().setName('queue').setDescription('View the current music queue'),
-  new SlashCommandBuilder().setName('pause').setDescription('Pause the current music'),
-  new SlashCommandBuilder().setName('resume').setDescription('Resume the current music'),
-  new SlashCommandBuilder().setName('skip').setDescription('Skip the current song'),
-  new SlashCommandBuilder().setName('stop').setDescription('Stop music and leave the voice channel'),
-  new SlashCommandBuilder().setName('ticket').setDescription('Open or manage support tickets')
-    .addSubcommand((sub) => sub.setName('create').setDescription('Open a private support ticket').addStringOption((option) => option.setName('reason').setDescription('Reason for the ticket').setRequired(false)))
-    .addSubcommand((sub) => sub.setName('close').setDescription('Close the current ticket'))
-    .addSubcommand((sub) => sub.setName('claim').setDescription('Claim the current ticket')),
-].map((command) => command.toJSON());
+  ['help', 'Show the complete command guide'],
+  ['ping', 'Check bot latency'], ['serverinfo', 'Show server information'],
+  ['userinfo', 'Show information about a member'],
+  ['8ball', 'Ask the magic 8-ball a question'], ['choose', 'Choose between options'],
+  ['coinflip', 'Flip a coin'], ['compliment', 'Send someone a kind compliment'],
+  ['hug', 'Send someone a virtual hug'], ['encourage', 'Get a little encouragement'],
+  ['quote', 'Get a thoughtful quote'],
+  ['remind', 'Send yourself a reminder later'], ['poll', 'Create a simple poll'],
+  ['search', 'Search YouTube'], ['play', 'Play audio in your voice channel'],
+  ['queue', 'Show the music queue'], ['pause', 'Pause music'],
+  ['resume', 'Resume music'], ['skip', 'Skip the current song'],
+  ['stop', 'Stop music and leave voice'],
+].map(([name, description]) => new SlashCommandBuilder().setName(name).setDescription(description));
 
-function isSupportMember(member) {
-  if (!member) return false;
-  if (member.permissions.has(PermissionFlagsBits.ManageChannels)) return true;
-  if (process.env.SUPPORT_ROLE_ID && member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) return true;
-  return false;
-}
+commands[3].addUserOption(o => o.setName('user').setDescription('Member').setRequired(false));
+commands[5].addStringOption(o => o.setName('options').setDescription('Separate choices with commas').setRequired(true));
+commands[7].addUserOption(o => o.setName('user').setDescription('Who should receive it?').setRequired(false));
+commands[8].addUserOption(o => o.setName('user').setDescription('Who should receive it?').setRequired(false));
+commands[11].addStringOption(o => o.setName('message').setDescription('Reminder text').setRequired(true))
+  .addIntegerOption(o => o.setName('minutes').setDescription('Minutes from now').setMinValue(1).setMaxValue(10080).setRequired(true));
+commands[12].addStringOption(o => o.setName('question').setDescription('Poll question').setRequired(true));
+for (const i of [4]) commands[i].addStringOption(o => o.setName('question').setDescription('Your question').setRequired(true));
+for (const i of [13, 14]) commands[i].addStringOption(o => o.setName('query').setDescription('Search terms or a YouTube URL').setRequired(true));
 
-async function registerCommands() {
+commands.push(new SlashCommandBuilder().setName('announce').setDescription('Post an announcement')
+  .addStringOption(o => o.setName('message').setDescription('Announcement text').setRequired(true))
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild));
+commands.push(new SlashCommandBuilder().setName('clear').setDescription('Delete messages')
+  .addIntegerOption(o => o.setName('amount').setDescription('1 to 100').setMinValue(1).setMaxValue(100).setRequired(true))
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages));
+commands.push(new SlashCommandBuilder().setName('kick').setDescription('Kick a member')
+  .addUserOption(o => o.setName('user').setDescription('Member').setRequired(true))
+  .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false))
+  .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers));
+commands.push(new SlashCommandBuilder().setName('ban').setDescription('Ban a member')
+  .addUserOption(o => o.setName('user').setDescription('Member').setRequired(true))
+  .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false))
+  .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers));
+commands.push(new SlashCommandBuilder().setName('ticket').setDescription('Open or manage a private support ticket')
+  .addSubcommand(s => s.setName('create').setDescription('Open a ticket').addStringOption(o => o.setName('reason').setDescription('What do you need help with?')))
+  .addSubcommand(s => s.setName('close').setDescription('Close this ticket'))
+  .addSubcommand(s => s.setName('claim').setDescription('Claim this ticket')));
+
+async function register() {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  const route = process.env.GUILD_ID
-    ? Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
-    : Routes.applicationCommands(process.env.CLIENT_ID);
-
-  await rest.put(route, { body: commands });
-  console.log('Slash commands registered.');
+  const route = process.env.GUILD_ID ? Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID) : Routes.applicationCommands(process.env.CLIENT_ID);
+  await rest.put(route, { body: commands.map(c => c.toJSON()) });
+  console.log('Commands registered.');
 }
-
-async function searchYouTube(query) {
-  const result = await yts(query);
-  const videos = result.videos?.slice(0, 5) ?? [];
-  if (!videos.length) return null;
-  return videos;
-}
-
-async function resolveTrack(input) {
-  if (/^https?:\/\//i.test(input)) {
-    return {
-      title: input,
-      url: input,
-    };
-  }
-
-  const videos = await searchYouTube(input);
-  if (!videos || !videos.length) return null;
-
-  const first = videos[0];
-  return {
-    title: first.title,
-    url: first.url,
-  };
-}
-
-function getMusicStateForGuild(guildId) {
-  return musicState.get(guildId);
-}
-
-async function playNextTrack(guildId) {
-  const state = getMusicStateForGuild(guildId);
-  if (!state) return;
-
-  if (!state.queue.length) {
-    state.textChannel?.send('🎵 Queue finished.').catch(() => {});
-    state.connection.destroy();
-    musicState.delete(guildId);
-    return;
-  }
-
-  const track = state.queue.shift();
-
+function support(member) { return member?.permissions.has(PermissionFlagsBits.ManageChannels) || (process.env.SUPPORT_ROLE_ID && member.roles.cache.has(process.env.SUPPORT_ROLE_ID)); }
+async function yt(query) { const r = await yts(query); return r.videos?.[0] ?? null; }
+async function stop(guildId) { const s = music.get(guildId); if (!s) return false; s.player.stop(); s.connection.destroy(); music.delete(guildId); return true; }
+async function next(guildId) {
+  const s = music.get(guildId); if (!s) return;
+  if (!s.queue.length) { s.text.send('🎵 The queue is finished. Thanks for listening with me 💙').catch(() => {}); return stop(guildId); }
+  const track = s.queue.shift();
   try {
-    const source = await play.stream(track.url, { discordPlayerCompatibility: true });
-    const resource = createAudioResource(source.stream, {
-      inputType: source.type,
-    });
-
-    state.player.play(resource);
-    state.textChannel?.send(`🎶 Now playing: **${track.title}**`).catch(() => {});
-  } catch (error) {
-    console.error('Music play error:', error);
-    state.textChannel?.send('⚠️ Could not play this track. Trying the next one.').catch(() => {});
-    await playNextTrack(guildId);
-  }
+    const stream = await play.stream(track.url, { discordPlayerCompatibility: true });
+    s.player.play(createAudioResource(stream.stream, { inputType: stream.type }));
+    s.text.send(`🎶 Now playing **${track.title}**`).catch(() => {});
+  } catch { s.text.send('I could not play that one, so I’ll try the next song.').catch(() => {}); next(guildId); }
 }
-
-function stopMusic(guildId) {
-  const state = musicState.get(guildId);
-  if (!state) return;
-  state.player.stop();
-  if (state.connection) state.connection.destroy();
-  musicState.delete(guildId);
-}
-
-async function handleMusicPlay(interaction, query) {
-  const memberVoice = interaction.member.voice?.channel;
-  if (!memberVoice) {
-    return interaction.reply({ content: 'Join a voice channel first.', ephemeral: true });
-  }
-
-  const track = await resolveTrack(query);
-  if (!track) {
-    return interaction.reply({ content: 'No song was found for that search.', ephemeral: true });
-  }
-
+async function playTrack(interaction, query) {
+  const voice = interaction.member.voice?.channel;
+  if (!voice) return interaction.reply({ content: 'Join a voice channel first, and I’ll come with you 🎧', ephemeral: true });
+  const result = /^https?:\/\//i.test(query) ? { url: query, title: query } : await yt(query);
+  if (!result) return interaction.reply({ content: 'I could not find that song. Try another search?', ephemeral: true });
   await interaction.deferReply();
-
-  let state = getMusicStateForGuild(interaction.guildId);
-
-  if (!state) {
-    const connection = joinVoiceChannel({
-      channelId: memberVoice.id,
-      guildId: interaction.guildId,
-      adapterCreator: interaction.guild.voiceAdapterCreator,
-    });
-
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-
-    const player = createAudioPlayer({
-      behaviors: {
-        noSubscriber: NoSubscriberBehavior.Pause,
-      },
-    });
-
-    connection.subscribe(player);
-
-    state = {
-      connection,
-      player,
-      queue: [],
-      textChannel: interaction.channel,
-    };
-
-    player.on('stateChange', async (oldState, newState) => {
-      if (newState.status === AudioPlayerStatus.Idle && oldState.status !== AudioPlayerStatus.Idle) {
-        await playNextTrack(interaction.guildId);
-      }
-    });
-
-    musicState.set(interaction.guildId, state);
+  let s = music.get(interaction.guildId);
+  if (!s) {
+    const connection = joinVoiceChannel({ channelId: voice.id, guildId: interaction.guildId, adapterCreator: interaction.guild.voiceAdapterCreator });
+    await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+    const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+    connection.subscribe(player); s = { connection, player, queue: [], text: interaction.channel }; music.set(interaction.guildId, s);
+    player.on('stateChange', (oldState, newState) => { if (newState.status === AudioPlayerStatus.Idle && oldState.status !== AudioPlayerStatus.Idle) next(interaction.guildId); });
   }
-
-  state.queue.push(track);
-  state.textChannel = interaction.channel;
-
-  if (state.player.state.status !== AudioPlayerStatus.Playing) {
-    await playNextTrack(interaction.guildId);
-  }
-
-  await interaction.editReply(`✅ Added to queue: **${track.title}**`);
+  s.queue.push({ title: result.title, url: result.url }); s.text = interaction.channel;
+  if (s.player.state.status !== AudioPlayerStatus.Playing) await next(interaction.guildId);
+  return interaction.editReply(`✅ Added **${result.title}** to the queue. I’ll keep the music going.`);
 }
-
-async function handleQueue(interaction) {
-  const state = getMusicStateForGuild(interaction.guildId);
-  if (!state || !state.queue.length) {
-    return interaction.reply({ content: 'There is no music queued right now.', ephemeral: true });
-  }
-
-  const queueText = state.queue.slice(0, 10).map((track, index) => `${index + 1}. ${track.title}`).join('\n');
-  return interaction.reply({ embeds: [new EmbedBuilder().setTitle('🎵 Queue').setDescription(queueText).setColor(0x5865f2)] });
+async function createTicket(i) {
+  const old = i.guild.channels.cache.find(c => c.name === `ticket-${i.user.id}`);
+  if (old) return i.reply({ content: `You already have a ticket here: ${old}`, ephemeral: true });
+  const role = process.env.SUPPORT_ROLE_ID;
+  const overwrites = [{ id: i.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }, { id: i.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }];
+  if (role) overwrites.push({ id: role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+  const c = await i.guild.channels.create({ name: `ticket-${i.user.id}`, type: ChannelType.GuildText, parent: process.env.TICKET_CATEGORY_ID || undefined, permissionOverwrites: overwrites, topic: `Ticket owner: ${i.user.tag}` });
+  const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket-close').setLabel('Close ticket').setStyle(ButtonStyle.Danger));
+  await c.send({ content: role ? `<@&${role}>` : 'Support team', embeds: [new EmbedBuilder().setTitle('🎫 I’m here to help').setDescription(`Welcome ${i.user}!\n\nTell us what is going on and someone will be with you soon.\nReason: **${i.options.getString('reason') || 'Not specified'}**`).setColor(0x5865f2)], components: [row] });
+  return i.reply({ content: `Your private ticket is ready: ${c}`, ephemeral: true });
 }
+function ticketClose(i) { if (!i.channel?.name.startsWith('ticket-')) return i.reply({ content: 'This is not a ticket channel.', ephemeral: true }); if (!support(i.member) && !i.channel.topic?.includes(i.user.tag)) return i.reply({ content: 'Only the ticket owner or support team can close this.', ephemeral: true }); i.reply('I’ll close this ticket in 5 seconds. Take care 💙'); setTimeout(() => i.channel.delete().catch(() => {}), 5000); }
 
-async function handleTicketCreate(interaction) {
-  const existing = interaction.guild.channels.cache.find((channel) => channel.name === `ticket-${interaction.user.id}` && channel.type === ChannelType.GuildText);
-  if (existing) {
-    return interaction.reply({ content: `You already have a ticket open: ${existing}`, ephemeral: true });
-  }
-
-  const reason = interaction.options.getString('reason') || 'No reason provided';
-  const supportRoleId = process.env.SUPPORT_ROLE_ID;
-
-  const permissionOverwrites = [
-    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-  ];
-
-  if (supportRoleId) {
-    permissionOverwrites.push({
-      id: supportRoleId,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-    });
-  }
-
-  const channel = await interaction.guild.channels.create({
-    name: `ticket-${interaction.user.id}`,
-    type: ChannelType.GuildText,
-    parent: process.env.TICKET_CATEGORY_ID || undefined,
-    permissionOverwrites,
-    topic: `Ticket created by ${interaction.user.tag} | Reason: ${reason}`,
-  });
-
-  const closeButton = new ButtonBuilder().setCustomId('ticket-close').setLabel('Close ticket').setStyle(ButtonStyle.Danger);
-  const row = new ActionRowBuilder().addComponents(closeButton);
-
-  const embed = new EmbedBuilder()
-    .setTitle('🎫 Support ticket opened')
-    .setDescription(`Hello ${interaction.user}.\nYour support ticket has been created.\n\nReason: **${reason}**\nA support team member will respond shortly.`)
-    .setColor(0x5865f2);
-
-  await channel.send({
-    content: supportRoleId ? `<@&${supportRoleId}>` : 'Support team has been notified.',
-    embeds: [embed],
-    components: [row],
-  });
-
-  return interaction.reply({ content: `Ticket created: ${channel}`, ephemeral: true });
-}
-
-async function handleTicketClose(interaction) {
-  if (!interaction.channel || !interaction.channel.name.startsWith('ticket-')) {
-    return interaction.reply({ content: 'This command only works in a ticket channel.', ephemeral: true });
-  }
-
-  if (!isSupportMember(interaction.member) && interaction.channel.topic?.includes(interaction.user.tag) === false) {
-    return interaction.reply({ content: 'Only support staff or the ticket owner can close this ticket.', ephemeral: true });
-  }
-
-  await interaction.reply({ content: 'Closing ticket in 5 seconds...' });
-  setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
-}
-
-async function handleTicketClaim(interaction) {
-  if (!interaction.channel || !interaction.channel.name.startsWith('ticket-')) {
-    return interaction.reply({ content: 'This command only works in a ticket channel.', ephemeral: true });
-  }
-
-  if (!isSupportMember(interaction.member)) {
-    return interaction.reply({ content: 'Support members only.', ephemeral: true });
-  }
-
-  return interaction.reply({ content: `${interaction.user} claimed this ticket.`, ephemeral: false });
-}
-
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
-});
-
-client.on('interactionCreate', async (interaction) => {
+client.on('ready', () => console.log(`Logged in as ${client.user.tag}`));
+client.on('interactionCreate', async i => {
   try {
-    if (interaction.isButton() && interaction.customId === 'ticket-close') {
-      return handleTicketClose(interaction);
-    }
-
-    if (!interaction.isChatInputCommand()) return;
-
-    const { commandName } = interaction;
-
-    if (commandName === 'help') {
-      const helpText = [
-        '/help — Show all commands',
-        '/ping — Check latency',
-        '/serverinfo — Server details',
-        '/userinfo — User details',
-        '/announce — Announcement',
-        '/clear <amount> — Delete messages',
-        '/kick <user> — Kick user',
-        '/ban <user> — Ban user',
-        '/search <query> — YouTube search',
-        '/play <query> — Play a YouTube song',
-        '/queue — View the music queue',
-        '/pause — Pause playback',
-        '/resume — Resume playback',
-        '/skip — Skip song',
-        '/stop — Stop music and leave the call',
-        '/ticket create — Open a support ticket',
-        '/ticket close — Close ticket',
-        '/ticket claim — Claim a ticket',
-      ].join('\n');
-
-      return interaction.reply({ embeds: [new EmbedBuilder().setTitle('Bot commands').setDescription(helpText).setColor(0x5865f2)] });
-    }
-
-    if (commandName === 'ping') {
-      return interaction.reply({ content: `Pong! Latency: ${Date.now() - interaction.createdTimestamp}ms`, ephemeral: true });
-    }
-
-    if (commandName === 'serverinfo') {
-      const guild = interaction.guild;
-      const embed = new EmbedBuilder()
-        .setTitle(guild.name)
-        .setThumbnail(guild.iconURL({ dynamic: true }))
-        .addFields(
-          { name: 'Members', value: `${guild.memberCount}`, inline: true },
-          { name: 'Channels', value: `${guild.channels.cache.size}`, inline: true },
-          { name: 'Owner', value: `<@${guild.ownerId}>`, inline: true },
-        )
-        .setColor(0x5865f2);
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    if (commandName === 'userinfo') {
-      const target = interaction.options.getUser('user') ?? interaction.user;
-      const member = interaction.guild.members.cache.get(target.id);
-      const embed = new EmbedBuilder()
-        .setTitle(target.tag)
-        .setThumbnail(target.displayAvatarURL({ dynamic: true }))
-        .addFields(
-          { name: 'ID', value: target.id },
-          { name: 'Joined server', value: member ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>` : 'Unknown', inline: true },
-          { name: 'Account created', value: `<t:${Math.floor(target.createdTimestamp / 1000)}:R>`, inline: true },
-        )
-        .setColor(0x5865f2);
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    if (commandName === 'announce') {
-      const message = interaction.options.getString('message');
-      await interaction.reply({ content: 'Announcement sent.', ephemeral: true });
-      return interaction.channel.send({
-        embeds: [new EmbedBuilder().setTitle('📣 Announcement').setDescription(message).setColor(0xf1c40f)],
-      });
-    }
-
-    if (commandName === 'clear') {
-      const amount = interaction.options.getInteger('amount');
-      await interaction.channel.bulkDelete(amount, true);
-      return interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
-    }
-
-    if (commandName === 'kick') {
-      const target = interaction.options.getUser('user');
-      const reason = interaction.options.getString('reason') || 'No reason provided';
-      const member = interaction.guild.members.cache.get(target.id);
-      if (!member) return interaction.reply({ content: 'That user is not in this server.', ephemeral: true });
-      await member.kick(reason);
-      return interaction.reply({ content: `Kicked ${target.tag} for: ${reason}` });
-    }
-
-    if (commandName === 'ban') {
-      const target = interaction.options.getUser('user');
-      const reason = interaction.options.getString('reason') || 'No reason provided';
-      await interaction.guild.members.ban(target, { reason });
-      return interaction.reply({ content: `Banned ${target.tag} for: ${reason}` });
-    }
-
-    if (commandName === 'search') {
-      const query = interaction.options.getString('query');
-      const videos = await searchYouTube(query);
-      if (!videos || !videos.length) {
-        return interaction.reply({ content: 'No results were found.', ephemeral: true });
-      }
-
-      const formatted = videos.map((video, index) => `**${index + 1}.** [${video.title}](${video.url})`).join('\n');
-      return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Search results for: ${query}`).setDescription(formatted).setColor(0x5865f2)] });
-    }
-
-    if (commandName === 'play') {
-      return handleMusicPlay(interaction, interaction.options.getString('query'));
-    }
-
-    if (commandName === 'queue') {
-      return handleQueue(interaction);
-    }
-
-    if (commandName === 'pause') {
-      const state = getMusicStateForGuild(interaction.guildId);
-      if (!state) return interaction.reply({ content: 'Nothing is playing right now.', ephemeral: true });
-      state.player.pause();
-      return interaction.reply({ content: '⏸️ Music paused.' });
-    }
-
-    if (commandName === 'resume') {
-      const state = getMusicStateForGuild(interaction.guildId);
-      if (!state) return interaction.reply({ content: 'There is no paused music.', ephemeral: true });
-      state.player.unpause();
-      return interaction.reply({ content: '▶️ Music resumed.' });
-    }
-
-    if (commandName === 'skip') {
-      const state = getMusicStateForGuild(interaction.guildId);
-      if (!state) return interaction.reply({ content: 'There is no song to skip.', ephemeral: true });
-      state.player.stop();
-      return interaction.reply({ content: '⏭️ Skipped the current track.' });
-    }
-
-    if (commandName === 'stop') {
-      stopMusic(interaction.guildId);
-      return interaction.reply({ content: '🛑 Stopped the music and left the voice channel.' });
-    }
-
-    if (commandName === 'ticket') {
-      const subcommand = interaction.options.getSubcommand();
-      if (subcommand === 'create') return handleTicketCreate(interaction);
-      if (subcommand === 'close') return handleTicketClose(interaction);
-      if (subcommand === 'claim') return handleTicketClaim(interaction);
-    }
-  } catch (error) {
-    console.error('Interaction error:', error);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply('Something went wrong while handling that command.').catch(() => {});
-    } else {
-      await interaction.reply({ content: 'Something went wrong while handling that command.', ephemeral: true }).catch(() => {});
-    }
-  }
+    if (i.isButton() && i.customId === 'ticket-close') return ticketClose(i);
+    if (!i.isChatInputCommand()) return;
+    const n = i.commandName;
+    if (n === 'help') return i.reply({ embeds: [new EmbedBuilder().setTitle('💙 Everything I can do').setDescription('**Kind & fun**\n`/8ball` `/choose` `/coinflip` `/compliment` `/hug` `/encourage` `/quote` `/remind` `/poll`\n\n**Music**\n`/search` `/play` `/queue` `/pause` `/resume` `/skip` `/stop`\n\n**Server tools**\n`/ticket create` `/ticket close` `/ticket claim` `/clear` `/kick` `/ban` `/announce`\n\n**Info**\n`/ping` `/serverinfo` `/userinfo`\n\nI’m always happy to help — just ask.').setColor(0x5865f2)] });
+    if (n === 'ping') return i.reply(`Pong! I’m here — ${Date.now() - i.createdTimestamp}ms 💙`);
+    if (n === 'coinflip') return i.reply(pick(['Heads! 🪙', 'Tails! 🪙']));
+    if (n === '8ball') return i.reply(pick(['Absolutely ✨', 'Probably!', 'I think so 💙', 'Not today, but keep going.', 'The future is still being written.', 'Ask me again in a little while.']));
+    if (n === 'choose') return i.reply(`I choose **${pick(i.options.getString('options').split(',').map(x => x.trim()).filter(Boolean))}** — trust your instincts too 💙`);
+    if (n === 'encourage') return i.reply(pick(encouragement));
+    if (n === 'quote') return i.reply(`“${pick(['Small steps still move you forward.', 'You can be a work in progress and still be proud of yourself.', 'There is no shame in beginning again.'])}”`);
+    if (n === 'compliment') { const u = i.options.getUser('user') || i.user; return i.reply(`${u}, you make this server a warmer place just by being here ✨`); }
+    if (n === 'hug') { const u = i.options.getUser('user') || i.user; return i.reply(`${i.user} gives ${u} a big virtual hug 🤗 You’re not alone.`); }
+    if (n === 'remind') { const mins = i.options.getInteger('minutes'); const message = i.options.getString('message'); await i.reply(`I’ll remind you in ${mins} minute${mins === 1 ? '' : 's'} 💙`); setTimeout(() => i.user.send(`⏰ You asked me to remind you: **${message}**`).catch(() => i.channel.send(`${i.user}, reminder: **${message}**`).catch(() => {})), mins * 60000); return; }
+    if (n === 'poll') { const q = i.options.getString('question'); const m = await i.reply({ content: `📊 **${q}**\nReact with ✅ for yes or ❌ for no.`, fetchReply: true }); await m.react('✅'); await m.react('❌'); return; }
+    if (n === 'search') { const r = await yt(i.options.getString('query')); return i.reply(r ? `🔎 **${r.title}**\n${r.url}` : 'I found nothing this time.'); }
+    if (n === 'play') return playTrack(i, i.options.getString('query'));
+    if (n === 'queue') { const s = music.get(i.guildId); return i.reply(s?.queue.length ? s.queue.slice(0, 15).map((x, k) => `${k + 1}. ${x.title}`).join('\n') : 'The queue is empty. Add something with `/play` 🎵'); }
+    if (n === 'pause' || n === 'resume') { const s = music.get(i.guildId); if (!s) return i.reply({ content: 'Nothing is playing right now.', ephemeral: true }); n === 'pause' ? s.player.pause() : s.player.unpause(); return i.reply(n === 'pause' ? '⏸️ Paused — I’ll be ready when you are.' : '▶️ Music resumed.'); }
+    if (n === 'skip') { const s = music.get(i.guildId); if (!s) return i.reply({ content: 'Nothing is playing.', ephemeral: true }); s.player.stop(); return i.reply('⏭️ Skipped. Let’s find the next vibe.'); }
+    if (n === 'stop') { await stop(i.guildId); return i.reply('🛑 Music stopped. I’ll be here whenever you want me back.'); }
+    if (n === 'serverinfo') return i.reply(`**${i.guild.name}** has ${i.guild.memberCount} members and ${i.guild.channels.cache.size} channels.`);
+    if (n === 'userinfo') { const u = i.options.getUser('user') || i.user; return i.reply({ embeds: [new EmbedBuilder().setTitle(u.tag).setThumbnail(u.displayAvatarURL()).setDescription(`Account created <t:${Math.floor(u.createdTimestamp / 1000)}:R>`).setColor(0x5865f2)] }); }
+    if (n === 'announce') { await i.reply({ content: 'Announcement posted.', ephemeral: true }); return i.channel.send({ embeds: [new EmbedBuilder().setTitle('📣 Announcement').setDescription(i.options.getString('message')).setColor(0xf1c40f)] }); }
+    if (n === 'clear') { const amount = i.options.getInteger('amount'); await i.channel.bulkDelete(amount, true); return i.reply({ content: `Deleted ${amount} messages.`, ephemeral: true }); }
+    if (n === 'kick' || n === 'ban') { const u = i.options.getUser('user'); const reason = i.options.getString('reason') || 'No reason given'; n === 'kick' ? await i.guild.members.kick(u, reason) : await i.guild.members.ban(u, { reason }); return i.reply(`${n === 'kick' ? 'Kicked' : 'Banned'} ${u.tag}. Reason: ${reason}`); }
+    if (n === 'ticket') { const sub = i.options.getSubcommand(); if (sub === 'create') return createTicket(i); if (sub === 'close') return ticketClose(i); if (sub === 'claim') return i.channel?.name.startsWith('ticket-') && support(i.member) ? i.reply(`${i.user} has claimed this ticket and will help you 💙`) : i.reply({ content: 'Support members only, inside a ticket.', ephemeral: true }); }
+  } catch (e) { console.error(e); const message = 'Something went wrong, but I’m still here — please try that again.'; if (i.deferred || i.replied) i.editReply(message).catch(() => {}); else i.reply({ content: message, ephemeral: true }).catch(() => {}); }
 });
-
-await registerCommands();
+await register();
 await client.login(process.env.DISCORD_TOKEN);
-
